@@ -1,0 +1,20 @@
+{
+  "name": "boop-game-server",
+  "version": "1.0.0",
+  "description": "The game server behind boop games",
+  "main": "index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "type": "module",
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@tsparticles/confetti": "3.5.0",
+    "bootstrap": "5.3.3",
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5",
+    "uuid": "^10.0.0"
+  }
+}
