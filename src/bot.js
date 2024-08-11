@@ -147,18 +147,34 @@ class SimpleBot extends BotPlayer {
       return true
     })
 
-    // if you can switch out small pieces for big ones, do it
-    // take the option with the most small pieces being replaced
-    // TODO
-
     // rate remaining options
     for (const option of options) {
       // if you are further away from the wall than that is better
       option.rating += this.calculateDistanceToWall(option.x, option.y, gameState)
-      // kicking out cats from opponents is good
-      // TODO
-      // kicking out cats from yourself is bad
-      // TODO
+
+      simulator.placePiece(option.locatedPiece)
+      const nextState = simulator.gameState.clone()
+      simulator.rollback()
+
+      const kickedOut = getKickedOutPieces(gameState, nextState)
+      kickedOut.forEach(piece => {
+        if (piece.owner === this.id) {
+          // kicking out cats from yourself is bad
+          option.rating -= 10 * piece.size
+        } else {
+          // kicking out cats from opponents is good
+          option.rating += 10 * piece.size
+        }
+      })
+
+      // getting a replacement is good
+      getBestReplacement(this.id, nextState)?.pieces.forEach(piece => {
+        option.rating += 100 * piece.size
+      })
+      // giving a replacement is bad
+      getBestReplacement(gameState.getNextPlayer().id, nextState)?.pieces.forEach(piece => {
+        option.rating -= 100 * piece.size
+      })
     }
 
     // pick best option
@@ -187,4 +203,24 @@ function doesPlayerHaveWinningMove (player, gameState) {
     simulator.rollback()
   }
   return false
+}
+
+function getBestReplacement (player, gameState) {
+  const replacements = gameState.gameboard.getReplacements().filter(r => r.pieces[0].owner === player)
+  if (replacements.length === 0) {
+    return null
+  }
+
+  const sortedByReplacedSize = replacements.sort((a, b) => arraySum(b.pieces.map(piece => piece.size)) - arraySum(a.pieces.map(piece => piece.size)));
+  return sortedByReplacedSize[sortedByReplacedSize.length - 1]
+}
+
+function getKickedOutPieces(gameState1, gameState2) {
+  const pieces1 = gameState1.gameboard.getActivePieces()
+  const pieces2 = gameState2.gameboard.getActivePieces()
+  return pieces1.filter(piece1 => !pieces2.find(piece2 => piece1.id === piece2.id))
+}
+
+function getKickedOutPiecesForPlayer(player, gameState1, gameState2) {
+  return getKickedOutPieces(gameState1, gameState2).filter(piece => piece.owner === player)
 }
