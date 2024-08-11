@@ -169,11 +169,11 @@ class SimpleBot extends BotPlayer {
 
       // getting a replacement is good
       getBestReplacement(this.id, nextState)?.pieces.forEach(piece => {
-        option.rating += 100 * piece.size
+        option.rating += 100 * (3 - piece.size)
       })
       // giving a replacement is bad
       getBestReplacement(gameState.getNextPlayer().id, nextState)?.pieces.forEach(piece => {
-        option.rating -= 100 * piece.size
+        option.rating -= 100 * (3 - piece.size)
       })
     }
 
