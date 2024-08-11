@@ -1,6 +1,7 @@
 let inGame = false
 let selectPieceLocationForCurrentPlayer = false
 let playerPlacementMode = new Map()
+const playerColors = new Map()
 
 function getPiecePlacementMode (playerId) {
   if (!playerPlacementMode.has(playerId)) {
@@ -9,10 +10,26 @@ function getPiecePlacementMode (playerId) {
   return playerPlacementMode.get(playerId)
 }
 
-function renderGameState (gameState) {
+function renderPiece(piece) {
+  const cell = document.querySelector(`.game-cell[data-x="${piece.x}"][data-y="${piece.y}"]`)
+  const pieceEl = document.createElement('div')
+  pieceEl.classList.add('game-piece')
+  pieceEl.style.backgroundColor = playerColors.get(piece.owner)
+  pieceEl.style.setProperty('--size', piece.size.toString())
+  cell.dataset.pieceId = piece.id
+  cell.appendChild(pieceEl)
+  cell.setAttribute('disabled', 'disabled')
+}
+
+
+const gameboard = document.querySelector('.game-board')
+const playerStats = document.querySelector('.player-stats')
+
+const animationQueue = []
+
+let lastGameState = null
+function renderGameState (gameState, store = false) {
   console.log('Render gamestate: ', gameState)
-  const gameboard = document.querySelector('.game-board')
-  const playerStats = document.querySelector('.player-stats')
   gameboard.innerHTML = ''
   playerStats.innerHTML = ''
 
@@ -41,7 +58,6 @@ function renderGameState (gameState) {
   }
   playerStats.appendChild(gameInfo)
 
-  const playerColors = new Map()
   gameState.players.forEach((player, i) => {
     playerColors.set(player.id, player.color)
 
@@ -63,14 +79,7 @@ function renderGameState (gameState) {
   })
 
   gameState.gameboard.pieces.forEach(piece => {
-    const cell = document.querySelector(`.game-cell[data-x="${piece.x}"][data-y="${piece.y}"]`)
-    const pieceEl = document.createElement('div')
-    pieceEl.classList.add('game-piece')
-    pieceEl.style.backgroundColor = playerColors.get(piece.owner)
-    pieceEl.style.setProperty('--size', piece.size.toString())
-    cell.dataset.pieceId = piece.id
-    cell.appendChild(pieceEl)
-    cell.setAttribute('disabled', 'disabled')
+    renderPiece(piece)
   })
 
   document.querySelectorAll('.game-cell:not(:disabled)').forEach((cell) => {
@@ -88,6 +97,14 @@ function renderGameState (gameState) {
       }
     })
   })
+
+  if (store) {
+    console.log("Last state:", lastGameState)
+    if(!lastGameState || JSON.stringify(lastGameState.gameboard.pieces) !== JSON.stringify(gameState.gameboard.pieces)) {
+      saveState(gameState)
+    }
+    lastGameState = gameState
+  }
 }
 
 const startNewGameBtn = document.getElementById('create-game-btn')
@@ -157,9 +174,13 @@ addBotBtn.addEventListener('click', e => {
   socket.emit('add-demo-bot', { type: 'simple' })
 })
 
+async function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 socket.on('game-state', (gameState) => {
   if (inGame) {
-    renderGameState(gameState)
+    animationQueue.push(() => renderGameState(gameState, true))
   }
 })
 
@@ -168,7 +189,20 @@ function requestCurrentGameState () {
 }
 
 socket.on('game-event', (event) => {
-  if (event.type === 'player-added' || event.type === 'player-placed-piece') {
+  if (event.type === 'player-placed-piece') {
+    animationQueue.push(() => {
+      renderPiece(event.locatedPiece)
+      if(lastGameState) {
+        lastGameState.players.forEach(player => {
+          player.hand = player.hand.filter(piece => piece.id !== event.locatedPiece.id)
+        })
+        lastGameState.gameboard.pieces.push(event.locatedPiece)
+        saveState(lastGameState)
+      }
+      requestCurrentGameState()
+    })
+  }
+  if (event.type === 'player-added') {
     requestCurrentGameState()
   }
   if (event.type === 'player-won') {
@@ -192,8 +226,19 @@ socket.on('game-event', (event) => {
 socket.on('select-piece-placement', (gameState) => {
   console.log('Need to select piece')
   selectPieceLocationForCurrentPlayer = true
-  renderGameState(gameState)
+  animationQueue.push(() => renderGameState(gameState, true))
 })
+
+let lastPaint = Date.now()
+setInterval(() => {
+  if (lastPaint + 1000 > Date.now()) {
+    return
+  }
+  if (animationQueue.length > 0) {
+    animationQueue.shift()()
+    lastPaint = Date.now()
+  }
+}, 10)
 
 const selectReplacementModal = document.getElementById('select-replacement-modal')
 const bsSelectReplacementModal = new bootstrap.Modal(selectReplacementModal)
@@ -211,7 +256,9 @@ socket.on('select-replacement', (replacements) => {
       })
       replacement.pieces.forEach(piece => {
         const cell = document.querySelector(`.game-cell[data-x="${piece.x}"][data-y="${piece.y}"]`)
-        cell.style.backgroundColor = 'yellow'
+        if (cell) {
+          cell.style.backgroundColor = 'yellow'
+        }
       })
     })
     const desc = document.createElement('span')
@@ -229,3 +276,42 @@ socket.on('select-replacement', (replacements) => {
 
   bsSelectReplacementModal.show()
 })
+
+let saveIndex = 0
+function saveState(gameState) {
+  localStorage.setItem('game-state-' + saveIndex, JSON.stringify(gameState))
+  console.log("Storing state:", saveIndex)
+  gameboard.dataset.currentId = saveIndex.toString()
+  saveIndex++
+}
+
+function getVisibleStateId() {
+  return gameboard.hasAttribute("data-current-id") ? parseInt(gameboard.dataset.currentId) : saveIndex - 1
+}
+function showPreviousState() {
+  const visibleStateId = getVisibleStateId()
+  console.log("Goto state:", visibleStateId - 1, "from", visibleStateId)
+  if (visibleStateId <= 0) {
+    return
+  }
+  const state = JSON.parse(localStorage.getItem('game-state-' + (visibleStateId - 1)))
+  if (state) {
+    renderGameState(state, false)
+    gameboard.dataset.currentId = (visibleStateId - 1).toString()
+  }
+}
+
+function showNextState() {
+  const visibleStateId = getVisibleStateId()
+  if (visibleStateId >= saveIndex - 1) {
+    return
+  }
+  const state = JSON.parse(localStorage.getItem('game-state-' + (visibleStateId + 1)))
+  if (state) {
+    renderGameState(state, false)
+    gameboard.dataset.currentId = (visibleStateId + 1).toString()
+  }
+}
+
+document.getElementById('prev-state-btn').addEventListener('click', showPreviousState)
+document.getElementById('next-state-btn').addEventListener('click', showNextState)
